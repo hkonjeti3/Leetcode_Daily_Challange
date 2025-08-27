@@ -1,9 +1,9 @@
-name: Sync LeetCode (named commits)
+name: Sync LeetCode (daily commits)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 17 * * *"   # 17:00 UTC daily
+    - cron: "0 17 * * *"   # 17:00 UTC daily (≈ 10 AM PDT / 9 AM PST)
 
 jobs:
   sync:
@@ -27,51 +27,15 @@ jobs:
 
       - name: Pull the new commit the action just pushed
         run: |
-          # authenticate origin for pull/push
           git remote set-url origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
-          # ensure we're on the default branch (same ref the workflow runs on)
           git checkout "${{ github.ref_name }}"
-          # fetch/pull the commit created by the LeetCode Sync action
           git fetch origin "${{ github.ref_name }}"
           git pull --ff-only origin "${{ github.ref_name }}"
 
-      - name: Determine problem name from changed files
-        id: title
-        shell: bash
+      - name: Amend commit message and push (just date)
         run: |
-          if git diff --quiet HEAD~1 HEAD; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          mapfile -t FILES < <(git diff --name-only HEAD~1 HEAD | grep '^daily_challange_solutions/' || true)
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          FIRST="${FILES[0]}"
-          RAW_TITLE="$(basename "$FIRST")"
-          RAW_TITLE="${RAW_TITLE%.*}"
-
-          # Sanitize filename → commit-safe
-          TITLE="$(echo "$RAW_TITLE" | sed 's/ /_/g')"
-          TITLE="$(echo "$TITLE" | sed 's/[^A-Za-z0-9_.-]//g')"
-
-          if [ ${#FILES[@]} -gt 1 ]; then
-            TITLE="${TITLE}_and_more"
-          fi
-
           DATE="$(TZ=America/Los_Angeles date +'%Y-%m-%d')"
-
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
-          echo "date=$DATE" >> "$GITHUB_OUTPUT"
-
-      - name: Amend commit message and push
-        if: steps.title.outputs.changed == 'true'
-        run: |
-          NEWMSG="leetcode_${{ steps.title.outputs.title }}_${{ steps.title.outputs.date }}"
+          NEWMSG="Daily_Challenge_${DATE}"
           echo "New commit message: $NEWMSG"
 
           git config user.name  "github-actions[bot]"
