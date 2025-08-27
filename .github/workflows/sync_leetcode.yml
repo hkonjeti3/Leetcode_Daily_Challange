@@ -1,0 +1,85 @@
+name: Sync LeetCode (named commits)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 17:00 UTC daily (≈ 10:00 AM PDT / 9:00 AM PST)
+    - cron: "0 17 * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          # We’ll amend the last commit, so keep full history just in case
+          fetch-depth: 0
+
+      - name: Run LeetCode Sync
+        uses: joshcai/leetcode-sync@v1.7
+        with:
+          github-token: ${{ github.token }}
+          leetcode-csrf-token: ${{ secrets.LEETCODE_CSRF_TOKEN }}
+          leetcode-session: ${{ secrets.LEETCODE_SESSION }}
+          destination-folder: daily_challange_solutions
+          verbose: true
+          # Temporary header; we'll overwrite it below
+          commit-header: "[temp-sync]"
+
+      - name: Determine problem name from changed files
+        id: title
+        shell: bash
+        run: |
+          # If the sync step didn’t create a commit (no new solves), bail out early.
+          if git diff --quiet HEAD~1 HEAD 2>/dev/null; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Grab files touched in the last commit and restrict to our destination folder
+          mapfile -t FILES < <(git diff --name-only HEAD~1 HEAD | grep '^daily_challange_solutions/' || true)
+
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Use the first file as the problem name source
+          FIRST="${FILES[0]}"
+
+          # Strip folder and extension → raw problem name
+          RAW_TITLE="$(basename "$FIRST")"
+          RAW_TITLE="${RAW_TITLE%.*}"
+
+          # Sanitize to underscores (GitHub commit-friendly)
+          TITLE="$(echo "$RAW_TITLE" | tr ' ' '_' | tr -cd '[:alnum:]_-.')"
+
+          # If more than one file changed, annotate
+          if [ ${#FILES[@]} -gt 1 ]; then
+            TITLE="${TITLE}_and_more"
+          fi
+
+          # Date in Pacific time (handles PDT/PST automatically)
+          DATE="$(TZ=America/Los_Angeles date +'%Y-%m-%d')"
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Amend commit message to leetcode_<daily_problem_name>_<YYYY-MM-DD>
+        if: steps.title.outputs.changed == 'true'
+        shell: bash
+        run: |
+          NEWMSG="leetcode_${{ steps.title.outputs.title }}_${{ steps.title.outputs.date }}"
+          echo "New commit message: $NEWMSG"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Amend last commit message (keep exactly the same tree)
+          git commit --amend -m "$NEWMSG"
+
+          # Force-push the amended commit back to the default branch
+          git push --force
