@@ -39,13 +39,11 @@ jobs:
         id: title
         shell: bash
         run: |
-          # If last commit didn’t change anything, stop
           if git diff --quiet HEAD~1 HEAD; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # only look under our destination folder
           mapfile -t FILES < <(git diff --name-only HEAD~1 HEAD | grep '^daily_challange_solutions/' || true)
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -55,7 +53,10 @@ jobs:
           FIRST="${FILES[0]}"
           RAW_TITLE="$(basename "$FIRST")"
           RAW_TITLE="${RAW_TITLE%.*}"
-          TITLE="$(echo "$RAW_TITLE" | tr ' ' '_' | tr -cd '[:alnum:]_-.')"
+
+          # Sanitize filename → commit-safe
+          TITLE="$(echo "$RAW_TITLE" | sed 's/ /_/g')"
+          TITLE="$(echo "$TITLE" | sed 's/[^A-Za-z0-9_.-]//g')"
 
           if [ ${#FILES[@]} -gt 1 ]; then
             TITLE="${TITLE}_and_more"
